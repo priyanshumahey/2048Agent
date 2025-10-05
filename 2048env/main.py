@@ -14,25 +14,26 @@ def _move_left_jit(board):
     merge_reward = 0
     
     for i in range(4):
-        row = board[i][board[i] != 0]
-
-        if len(row) == 0:
-            continue
+        col_idx = 0
+        temp = np.zeros(4, dtype=np.int32)
+        for j in range(4):
+            if board[i, j] != 0:
+                temp[col_idx] = board[i, j]
+                col_idx += 1
         
-        merged = []
+        pos = 0
         j = 0
-        while j < len(row):
-            if j + 1 < len(row) and row[j] == row[j + 1]:
-                merged_value = row[j] * 2
-                merged.append(merged_value)
+        while j < col_idx:
+            if j + 1 < col_idx and temp[j] == temp[j + 1]:
+                merged_value = temp[j] * 2
+                new_board[i, pos] = merged_value
                 merge_reward += merged_value
                 j += 2
+                pos += 1
             else:
-                merged.append(row[j])
+                new_board[i, pos] = temp[j]
                 j += 1
-
-        for k, val in enumerate(merged):
-            new_board[i][k] = val
+                pos += 1
     
     return new_board, merge_reward
 
@@ -76,12 +77,13 @@ class Game2048Env(gym.Env):
         self.observation_space = spaces.Box(low=0, high=131072, shape=(4, 4), dtype=np.int32)
         self.score = 0
         self.merge_reward = 0
+        self.rng = np.random.default_rng()
         self.reset()
 
     def reset(self, seed=None, options=None):
         """Reset the environment to initial state with two tiles"""
         if seed is not None:
-            np.random.seed(seed)
+            self.rng = np.random.default_rng(seed)
         self.board.fill(0)
         self.score = 0
         self.merge_reward = 0
@@ -93,9 +95,9 @@ class Game2048Env(gym.Env):
         """Spawn a new tile in a random empty cell"""
         empty = list(zip(*np.where(self.board == 0)))
         if empty:
-            i, j = empty[np.random.randint(len(empty))]
+            i, j = empty[self.rng.integers(len(empty))]
             if value is None:
-                self.board[i, j] = 2
+                self.board[i, j] = 2 if self.rng.random() < 0.9 else 4
             else:
                 self.board[i, j] = value
 
