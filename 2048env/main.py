@@ -1,7 +1,10 @@
+import sys
+import tty
+import termios
+import argparse
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-import argparse
 
 class Game2048Env(gym.Env):
     """
@@ -85,17 +88,49 @@ class Game2048Env(gym.Env):
         elif action == 3:  # Right
             self.board = self._move_right()
         
+    def _move_left(self):
+        """Move all tiles left and merge"""
+        new_board = np.zeros((4, 4), dtype=np.int32)
+        
+        for i in range(4):
+            row = self.board[i][self.board[i] != 0]
+            
+            if len(row) == 0:
+                continue
+            
+            merged = []
+            j = 0
+            while j < len(row):
+                if j + 1 < len(row) and row[j] == row[j + 1]:
+                    merged_value = row[j] * 2
+                    merged.append(merged_value)
+                    self.merge_reward += merged_value
+                    j += 2 
+                else:
+                    merged.append(row[j])
+                    j += 1
+            
+            new_board[i][:len(merged)] = merged
+        
+        return new_board
+
+    def _move_right(self):
+        """Move all tiles right and merge"""
+        self.board = np.fliplr(self.board)
+        result = self._move_left()
+        return np.fliplr(result)
+
     def _move_up(self):
-        return
+        """Move all tiles up and merge"""
+        self.board = self.board.T
+        result = self._move_left()
+        return result.T
 
     def _move_down(self):
-        return
-    
-    def _move_left(self):
-        return
-    
-    def _move_right(self):
-        return
+        """Move all tiles down and merge"""
+        self.board = self.board.T
+        result = self._move_right()
+        return result.T
 
     def _is_done(self):
         """
@@ -122,12 +157,75 @@ class Game2048Env(gym.Env):
             print("-"*25)
         print(f"Score: {self.score}")
         print("="*25)
+    
+def get_arrow_key():
+    """Get arrow key input from terminal"""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+        
+        if ch == '\x1b':
+            ch = sys.stdin.read(2)
+            if ch == '[A':
+                return 0
+            elif ch == '[B':
+                return 1
+            elif ch == '[D':
+                return 2
+            elif ch == '[C':
+                return 3
+        elif ch == 'q':
+            return -1
+        elif ch == 'r':
+            return -2
+            
+        return None
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 def human_mode():
     """Allows human to play the game with arrow keys"""
     env = Game2048Env()
-    return
-    
+
+    action_names = {0: "UP", 1: "DOWN", 2: "LEFT", 3: "RIGHT"}
+
+    print("Starting 2048 Game - Human Mode")
+    print("Use arrow keys to move tiles. Press 'q' to quit, 'r' to restart.")
+    print("Press any key to start...")
+    get_arrow_key()
+
+    while True:
+        print("\033[2J\033[H", end="")
+
+        env.render()
+
+        if env._is_done():
+            print("Game Over!")
+            print(f"Final Score: {env.score}")
+            print(f"Max Tile: {env.board.max()}")
+
+            break
+        
+        action = get_arrow_key()
+        
+        if action == -1:
+            print("\n👋 Thanks for playing!")
+            break
+        elif action == -2:
+            env.reset()
+            print("\n🔄 Game restarted!")
+            continue
+        elif action is None:
+            continue
+        
+        obs, reward, done, truncated, info = env.step(action)
+        
+        if reward > 0:
+            print(f"\n {action_names[action]} - Merged tiles! +{reward} points")
+        else:
+            print(f"\n Invalid move - try a different direction")
 
 def auto_mode():
     """Test the 2048 environment with random actions"""
