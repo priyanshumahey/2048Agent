@@ -48,29 +48,125 @@ class Game2048Env(gym.Env):
                 self.board[i, j] = value
 
     def step(self, action):
+        """
+        Execute one step in the environment
+        
+        Returns:
+            observation: current board state (copy to prevent external modification)
+            reward: sum of merged tiles this step
+            done: whether the game is over
+            truncated: always False
+            info: empty dict
+        """
         old_board = self.board.copy()
+        self.merge_reward = 0
+        
         self._move(action)
-        if not np.array_equal(old_board, self.board):
+        
+        if np.array_equal(old_board, self.board):
+            reward = 0
+        else:
             self._spawn()
+            reward = self.merge_reward
+            self.score += reward
+        
         done = self._is_done()
-        reward = self.board.max()
+        
         return self.board.copy(), reward, done, False, {}
 
     def _move(self, action):
-        pass
+        """Execute the move based on action (0=up, 1=down, 2=left, 3=right)"""
+        if action == 0:  # Up
+            self.board = self._move_up()
+        elif action == 1:  # Down
+            self.board = self._move_down()
+        elif action == 2:  # Left
+            self.board = self._move_left()
+        elif action == 3:  # Right
+            self.board = self._move_right()
+        
+    def _move_up(self):
+        return
+
+    def _move_down(self):
+        return
+    
+    def _move_left(self):
+        return
+    
+    def _move_right(self):
+        return
 
     def _is_done(self):
-        return False
+        """
+        Check if the game is over
+        Game ends when there are no empty cells and no possible merges
+        """
+        if np.any(self.board == 0):
+            return False
+        
+        if np.any(self.board[:, :-1] == self.board[:, 1:]):
+            return False
+        
+        if np.any(self.board[:-1, :] == self.board[1:, :]):
+            return False
+        
+        return True
+
 
     def render(self):
-        print(self.board)
-
+        """Print the current board state"""
+        print("\n" + "="*25)
+        for row in self.board:
+            print("|" + "|".join(f"{val:4d}" if val != 0 else "    " for val in row) + "|")
+            print("-"*25)
+        print(f"Score: {self.score}")
+        print("="*25)
 
 def human_mode():
+    """Allows human to play the game with arrow keys"""
+    env = Game2048Env()
     return
+    
 
 def auto_mode():
-    return
+    """Test the 2048 environment with random actions"""
+    env = Game2048Env()
+    
+    action_names = {0: "UP", 1: "DOWN", 2: "LEFT", 3: "RIGHT"}
+    
+    print("Starting 2048 Game - Auto Mode!")
+    print("Initial board:")
+    env.render()
+
+    valid_moves = 0
+    max_attempts = 4
+
+    for _ in range(1, max_attempts + 1):
+        action = env.action_space.sample()
+
+        obs, reward, done, truncated, info = env.step(action)
+
+        if reward > 0:
+            valid_moves += 1
+            print(f"\nMove {valid_moves} - Action: {action_names[action]}")
+            env.render()
+            print(f"Reward: {reward} | Score: {env.score} | Max: {obs.max()}")
+        
+        if done:
+            print("\n" + "="*50)
+            print("Game Over!")
+            print(f"Final Score: {env.score}")
+            print(f"Max Tile: {env.board.max()}")
+            print("="*50)
+            break
+    
+    if not done:
+        print("\nMax attempts reached. Ending game.")
+        print(f"Final Score: {env.score}")
+        print(f"Max Tile: {env.board.max()}")    
+    
+
 
 def main():
     parser = argparse.ArgumentParser(description='2048 Game Environment')
