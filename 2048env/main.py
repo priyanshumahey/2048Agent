@@ -73,7 +73,7 @@ class Game2048Env(gym.Env):
         super().__init__()
         self.board = np.zeros((4, 4), dtype=np.int32)
         self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Box(low=0, high=2048, shape=(4, 4), dtype=np.int32)
+        self.observation_space = spaces.Box(low=0, high=131072, shape=(4, 4), dtype=np.int32)
         self.score = 0
         self.merge_reward = 0
         self.reset()
@@ -108,23 +108,25 @@ class Game2048Env(gym.Env):
             reward: sum of merged tiles this step
             done: whether the game is over
             truncated: always False
-            info: empty dict
+            info: dict with 'valid_move' key indicating if the move changed the board
         """
         old_board = self.board.copy()
         self.merge_reward = 0
         
         self._move(action)
         
-        if np.array_equal(old_board, self.board):
-            reward = 0
-        else:
+        valid_move = not np.array_equal(old_board, self.board)
+        
+        if valid_move:
             self._spawn()
             reward = self.merge_reward
             self.score += reward
+        else:
+            reward = 0
         
         done = self._is_done()
         
-        return self.board.copy(), reward, done, False, {}
+        return self.board.copy(), reward, done, False, {'valid_move': valid_move}
 
     def _move(self, action):
         """Execute the move based on action (0=up, 1=down, 2=left, 3=right)"""
@@ -145,20 +147,25 @@ class Game2048Env(gym.Env):
 
     def _move_right(self):
         """Move all tiles right and merge"""
-        self.board = np.fliplr(self.board)
-        result = self._move_left()
-        return np.fliplr(result)
+        flipped = np.fliplr(self.board)
+        new_board, merge_reward = _move_left_jit(flipped)
+        self.merge_reward += merge_reward
+        return np.fliplr(new_board)
 
     def _move_up(self):
         """Move all tiles up and merge"""
-        self.board = self.board.T
-        result = self._move_left()
-        return result.T
+        transposed = self.board.T
+        new_board, merge_reward = _move_left_jit(transposed)
+        self.merge_reward += merge_reward
+        return new_board.T
 
     def _move_down(self):
         """Move all tiles down and merge"""
-        self.board = self.board.T
-        result = self._move_right()
+        transposed = self.board.T
+        flipped = np.fliplr(transposed)
+        new_board, merge_reward = _move_left_jit(flipped)
+        self.merge_reward += merge_reward
+        result = np.fliplr(new_board)
         return result.T
 
     def _is_done(self):
@@ -242,10 +249,13 @@ def human_mode():
         
         obs, reward, done, truncated, info = env.step(action)
         
-        if reward > 0:
-            print(f"\n {action_names[action]} - Merged tiles! +{reward} points")
+        if info['valid_move']:
+            if reward > 0:
+                print(f"\n✓ {action_names[action]} - Merged tiles! +{reward} points")
+            else:
+                print(f"\n✓ {action_names[action]} - Tiles moved")
         else:
-            print(f"\n Invalid move - try a different direction")
+            print(f"\n✗ Invalid move! No tiles can move {action_names[action]}. Try a different direction.")
 
 def auto_mode():
     """Test the 2048 environment with random actions"""
@@ -257,32 +267,36 @@ def auto_mode():
     print("Initial board:")
     env.render()
 
-    valid_moves = 0
-    max_attempts = 4
+    move_count = 0
+    max_moves = 100
 
-    for _ in range(1, max_attempts + 1):
+    for _ in range(max_moves):
         action = env.action_space.sample()
-
         obs, reward, done, truncated, info = env.step(action)
 
-        if reward > 0:
-            valid_moves += 1
-            print(f"\nMove {valid_moves} - Action: {action_names[action]}")
+        if info['valid_move']:
+            move_count += 1
+            print(f"\nMove {move_count} - Action: {action_names[action]}")
             env.render()
-            print(f"Reward: {reward} | Score: {env.score} | Max: {obs.max()}")
+            if reward > 0:
+                print(f"Reward: {reward} | Score: {env.score} | Max: {obs.max()}")
+            else:
+                print(f"Tiles moved (no merge) | Score: {env.score} | Max: {obs.max()}")
         
         if done:
             print("\n" + "="*50)
             print("Game Over!")
             print(f"Final Score: {env.score}")
             print(f"Max Tile: {env.board.max()}")
+            print(f"Total Valid Moves: {move_count}")
             print("="*50)
             break
     
     if not done:
-        print("\nMax attempts reached. Ending game.")
+        print("\nMax moves reached. Ending game.")
         print(f"Final Score: {env.score}")
-        print(f"Max Tile: {env.board.max()}")    
+        print(f"Max Tile: {env.board.max()}")
+        print(f"Total Valid Moves: {move_count}")    
 
 def main():
     parser = argparse.ArgumentParser(description='2048 Game Environment')
