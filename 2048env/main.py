@@ -5,6 +5,55 @@ import argparse
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
+from numba import jit
+
+@jit(nopython=True)
+def _move_left_jit(board):
+    """Numba-optimized left move with merging logic"""
+    new_board = np.zeros((4, 4), dtype=np.int32)
+    merge_reward = 0
+    
+    for i in range(4):
+        row = board[i][board[i] != 0]
+
+        if len(row) == 0:
+            continue
+        
+        merged = []
+        j = 0
+        while j < len(row):
+            if j + 1 < len(row) and row[j] == row[j + 1]:
+                merged_value = row[j] * 2
+                merged.append(merged_value)
+                merge_reward += merged_value
+                j += 2
+            else:
+                merged.append(row[j])
+                j += 1
+
+        for k, val in enumerate(merged):
+            new_board[i][k] = val
+    
+    return new_board, merge_reward
+
+@jit(nopython=True)
+def _is_done_jit(board):
+    """Numba-optimized game over check"""
+    if np.any(board == 0):
+        return False
+    
+    for i in range(4):
+        for j in range(3):
+            if board[i, j] == board[i, j + 1]:
+                return False
+    
+    for i in range(3):
+        for j in range(4):
+            if board[i, j] == board[i + 1, j]:
+                return False
+    
+    return True
+
 
 class Game2048Env(gym.Env):
     """
@@ -90,28 +139,8 @@ class Game2048Env(gym.Env):
         
     def _move_left(self):
         """Move all tiles left and merge"""
-        new_board = np.zeros((4, 4), dtype=np.int32)
-        
-        for i in range(4):
-            row = self.board[i][self.board[i] != 0]
-            
-            if len(row) == 0:
-                continue
-            
-            merged = []
-            j = 0
-            while j < len(row):
-                if j + 1 < len(row) and row[j] == row[j + 1]:
-                    merged_value = row[j] * 2
-                    merged.append(merged_value)
-                    self.merge_reward += merged_value
-                    j += 2 
-                else:
-                    merged.append(row[j])
-                    j += 1
-            
-            new_board[i][:len(merged)] = merged
-        
+        new_board, merge_reward = _move_left_jit(self.board)
+        self.merge_reward += merge_reward
         return new_board
 
     def _move_right(self):
@@ -137,16 +166,7 @@ class Game2048Env(gym.Env):
         Check if the game is over
         Game ends when there are no empty cells and no possible merges
         """
-        if np.any(self.board == 0):
-            return False
-        
-        if np.any(self.board[:, :-1] == self.board[:, 1:]):
-            return False
-        
-        if np.any(self.board[:-1, :] == self.board[1:, :]):
-            return False
-        
-        return True
+        return _is_done_jit(self.board)
 
 
     def render(self):
@@ -263,8 +283,6 @@ def auto_mode():
         print("\nMax attempts reached. Ending game.")
         print(f"Final Score: {env.score}")
         print(f"Max Tile: {env.board.max()}")    
-    
-
 
 def main():
     parser = argparse.ArgumentParser(description='2048 Game Environment')
